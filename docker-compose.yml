@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: referharmony_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: referharmony_routes
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Route Optimizer Service
+  route_optimizer:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: referharmony_route_optimizer
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/referharmony_routes
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      PORT: 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./route_optimizer:/app
+    command: uvicorn route_optimizer:app --host 0.0.0.0 --port 8000 --reload
+
+  # Node.js Backend (Existing)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: referharmony_backend
+    environment:
+      PORT: 5000
+      MONGODB_URI: ${MONGODB_URI:-mongodb://mongo:27017/referharmony}
+      JWT_SECRET: ${JWT_SECRET:-your-secret-jwt-secret-here}
+      CLIENT_URL: http://localhost:3000
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongo
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+  # MongoDB (Existing)
+  mongo:
+    image: mongo:7
+    container_name: referharmony_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # React Frontend (Existing)
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: referharmony_frontend
+    environment:
+      VITE_API_URL: http://localhost:5000
+      VITE_ROUTE_OPTIMIZER_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - route_optimizer
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  mongo_data:
+
+
